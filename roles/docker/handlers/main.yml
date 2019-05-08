@@ -1,0 +1,6 @@
+---
+- name: start docker
+  service: name=docker state=started
+
+- name: start iptables
+  shell: /opt/sh/iptables

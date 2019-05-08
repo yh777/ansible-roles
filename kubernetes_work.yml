@@ -1,0 +1,10 @@
+---
+- hosts: test2,test1
+  gather_facts: yes
+  vars:
+    KUBE_APISERVER: "https://192.168.95.11:6443"
+    CLUSTER_DNS_DOMAIN: "cluster.local"
+    CLUSTER_DNS_SVC_IP: "10.254.0.2"
+    CLUSTER_CIDR: "172.30.0.0/16"
+  roles:
+    - kubernetes_work

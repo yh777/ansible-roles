@@ -1,0 +1,60 @@
+---
+- name: disable Selinux 1
+  replace: path=/etc/sysconfig/selinux regexp='SELINUX=enforcing' replace='SELINUX=disabled'
+
+- name: disable Selinux 2
+  replace: path=/etc/sysconfig/selinux regexp='SELINUX=permissive' replace='SELINUX=disabled'
+
+- name: install epel-release
+  yum: name=epel-release state=latest
+
+- name: install rpm packages
+  shell: yum install -y vim lrzsz iptables-services tree unzip telnet yum-utils bridge-utils bind-utils net-tools wget cmake gcc gcc-c++ ncurses-devel perl-Data-Dumper pcre-devel zlib-devel openssl-devel make sysstat screen iptraf htop iftop iotop ntpdate sshpass lsof traceroute attr rsync psmisc aria2 nc git
+
+- name: time sync
+  lineinfile: dest=/etc/crontab regexp='ntpdate time1.aliyun.com' line='*/7 * * * * root /usr/sbin/ntpdate time1.aliyun.com' state=present
+
+- name: disable ntpd
+  service: name=ntpd state=stopped enabled=false
+  ignore_errors: yes
+
+- name: disable postfix
+  service: name=postfix state=stopped enabled=false
+  ignore_errors: yes
+
+- name: disable rpcbind
+  service: name=rpcbind state=stopped enabled=false
+  ignore_errors: yes
+
+- name: add +x rc.local
+  file: path=/etc/rc.d/rc.local mode=755
+
+
+
+
+#- name: alter sshd port
+#  shell: sed -i 's/^#Port 22$/Port 37212/' /etc/ssh/sshd_config
+#  replace: path=/etc/ssh/sshd_config regexp='^#Port 22$' replace='Port 37212'
+#  notify: 
+#  - restart sshd
+
+#- name: mkdir /opt/sh
+#  file: path=/opt/sh state=directory
+
+#- name: stop firewalld
+#  shell: systemctl stop firewalld
+
+#- name: disable firewalld
+#  shell: systemctl disable firewalld
+
+#- name: enable iptables
+#  shell: systemctl enable iptables && systemctl start iptables
+
+#- name: copy iptables.sh
+#  copy: src=iptables.sh dest=/opt/sh/ mode=755
+#  notify:
+#  - start iptables
+
+#- name: add iptables.sh to rc.local
+#  shell: grep '/opt/sh/iptables.sh' /etc/rc.d/rc.local || echo '/opt/sh/iptables.sh' >> /etc/rc.d/rc.local
+

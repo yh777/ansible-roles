@@ -1,0 +1,15 @@
+---
+- name: reload systemd
+  shell: systemctl daemon-reload
+
+- name: restart dockerd
+  service: name=docker.service state=restarted enabled=yes
+
+- name: exec kubelet_bootstrap_kubeconfig.sh
+  shell: /opt/k8s/bin/kubelet_bootstrap_kubeconfig.sh
+
+- name: restart kubelet
+  service: name=kubelet.service state=restarted enabled=yes
+
+- name: restart kube-proxy
+  service: name=kube-proxy.service state=restarted enabled=yes

@@ -1,0 +1,67 @@
+---
+- name: add k8s user
+  user: name=k8s state=present createhome=no shell=/bin/false
+
+- name: add directory /opt/k8s/bin
+  file: name=/opt/k8s/bin/ state=directory
+
+- name: add PATH
+  lineinfile: path=/etc/profile regexp='/opt/k8s/bin' line='export PATH=$PATH:/opt/k8s/bin'
+
+- name: install packages
+  yum: name=epel-release,conntrack,ipvsadm,ipset,jq,sysstat,curl,iptables,libseccomp state=latest
+
+- name: disable swap
+  shell: swapoff -a && sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+- name: load modules
+  shell: modprobe br_netfilter || modprobe ip_vs
+
+- name: copy system parameter file
+  copy: src=kubernetes.conf dest=/etc/sysctl.d/kubernetes.conf
+
+- name: run file
+  shell: sysctl -p /etc/sysctl.d/kubernetes.conf
+
+- name: add rc.local1
+  lineinfile: path=/etc/rc.local regexp='modprobe br_netfilter' line='modprobe br_netfilter'
+
+- name: add rc.local2
+  lineinfile: path=/etc/rc.local regexp='modprobe ip_vs' line='modprobe ip_vs'
+
+- name: add rc.local3
+  lineinfile: path=/etc/rc.local regexp='sysctl -p /etc/sysctl.d/kubernetes.conf' line='sysctl -p /etc/sysctl.d/kubernetes.conf'
+
+
+
+- name: copy cfssl tools 1
+  copy: src=cfssl dest=/opt/k8s/bin/ mode=755
+
+- name: copy cfss tools 2
+  copy: src=cfssl-certinfo dest=/opt/k8s/bin/ mode=755
+
+- name: copy cfss tools 3
+  copy: src=cfssljson dest=/opt/k8s/bin/ mode=755
+
+- name: copy k8s kubectl
+  copy: src=kubectl dest=/opt/k8s/bin/ mode=755
+
+- name: copy k8s kubeadm
+  copy: src=kubeadm dest=/opt/k8s/bin/ mode=755
+
+- name: mkdir .kube
+  file: path=~/.kube state=directory
+
+- name: copy kubeconfig
+  template: src=kubectl.kubeconfig.j2 dest=~/.kube/config
+
+
+
+- name: copy ca 1
+  copy: src=ca-config.json dest=/etc/kubernetes/cert/
+
+- name: copy ca 2
+  copy: src=ca-key.pem dest=/etc/kubernetes/cert/
+
+- name: copy ca 3
+  copy: src=ca.pem dest=/etc/kubernetes/cert/

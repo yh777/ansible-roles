@@ -1,0 +1,7 @@
+---
+- hosts: es01
+  gather_facts: yes
+  roles:
+    - common
+    - docker
+    - zabbix_agent

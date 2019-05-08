@@ -1,0 +1,6 @@
+---
+- name: restart sshd
+  service: name=sshd state=restarted
+
+- name: start iptables
+  shell: /opt/sh/iptables.sh

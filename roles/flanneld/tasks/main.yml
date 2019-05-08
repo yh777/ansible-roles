@@ -1,0 +1,21 @@
+---
+- name: copy exec file 1
+  copy: src=flanneld dest=/opt/k8s/bin/ mode=755
+
+- name: copy exec file2
+  copy: src=mk-docker-opts.sh dest=/opt/k8s/bin/ mode=755
+
+- name: mkdir 1
+  file: path=/etc/flanneld/cert state=directory
+
+- name: copy key 1
+  copy: src=flanneld-key.pem dest=/etc/flanneld/cert/
+
+- name: copy key 2
+  copy: src=flanneld.pem dest=/etc/flanneld/cert/
+
+- name: copy Unit file
+  template: src=flanneld.service.j2 dest=/etc/systemd/system/flanneld.service
+  notify:
+  - reload systemd
+  - restart flanneld

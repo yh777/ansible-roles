@@ -1,0 +1,11 @@
+---
+- hosts: test1,test2
+  gather_facts: yes
+  vars:
+    ENCRYPTION_KEY: "u5b8WA2G9uZsY2Etcq9ST5u0ie0+5O9AV8qsSjnq7IU="
+    SERVICE_CIDR: "10.254.0.0/16"
+    NODE_PORT_RANGE: "1-65535"
+    ETCD_ENDPOINTS: "https://192.168.95.11:2379,https://192.168.95.12:2379"
+    KUBE_APISERVER: "https://192.168.95.11:6443"
+  roles:
+    - kubernetes_master

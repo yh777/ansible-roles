@@ -1,0 +1,24 @@
+---
+- name: mkdir 1
+  file: path=/etc/etcd/cert state=directory
+
+- name: mkdir 2
+  file: path=/var/lib/etcd state=directory
+
+- name: copy exec file 1
+  copy: src=etcd dest=/opt/k8s/bin mode=755
+
+- name: copy exec file 2
+  copy: src=etcdctl dest=/opt/k8s/bin mode=755
+
+- name: copy key 1
+  copy: src=etcd-key.pem dest=/etc/etcd/cert/
+
+- name: copy key 2
+  copy: src=etcd.pem dest=/etc/etcd/cert/
+
+- name: copy Unit file
+  template: src=etcd.service.j2 dest=/etc/systemd/system/etcd.service
+  notify:
+  - reload systemd
+  - restart etcd

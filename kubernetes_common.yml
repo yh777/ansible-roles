@@ -1,0 +1,7 @@
+---
+- hosts: test1,test2
+  vars:
+    KUBE_APISERVER: "https://192.168.95.11:6443"
+  gather_facts: yes
+  roles:
+    - kubernetes_common

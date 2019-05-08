@@ -1,0 +1,22 @@
+---
+- name: copy zabbix.tar.gz
+  copy: src=zabbix-{{ ZABBIX_VERSION }}.tar.gz dest=/tmp/
+
+- name: groupadd zabbix group
+  group: name=zabbix state=present gid=96122
+  ignore_errors: yes
+
+- name: useradd zabbix user
+  user: name=zabbix state=present createhome=no shell='/sbin/nologin' uid=96122 group=zabbix
+  ignore_errors: yes
+
+- name: install zabbix-agent
+  shell: cd /tmp && tar zxvf zabbix-{{ ZABBIX_VERSION }}.tar.gz && cd zabbix-{{ ZABBIX_VERSION }} && ./configure --prefix=/data/zabbix --enable-agent && make install && cd .. && rm -rf zabbix-{{ ZABBIX_VERSION }}*
+
+- name: add config file
+  template: src=zabbix_agentd.conf.j2 dest=/data/zabbix/etc/zabbix_agentd.conf
+  notify:
+  - start zabbix_agent
+
+- name: add started
+  lineinfile: path=/etc/rc.local regexp=zabbix_agentd state=present line='/data/zabbix/sbin/zabbix_agentd'

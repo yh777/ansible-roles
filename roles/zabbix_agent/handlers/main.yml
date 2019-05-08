@@ -1,0 +1,3 @@
+---
+- name: start zabbix_agent
+  shell: /data/zabbix/sbin/zabbix_agentd

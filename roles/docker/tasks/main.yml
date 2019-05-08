@@ -1,0 +1,41 @@
+---
+- name: install docker-ce.repo
+  command: yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+- name: install docker-ce
+  yum: name=docker-ce state=latest
+
+- name: mkdir /etc/docker
+  file: path=/etc/docker state=directory
+
+- name: set docker0 network
+  copy: src=daemon.json dest=/etc/docker/
+
+- name: mkdir /root/.docker
+  file: path=/root/.docker state=directory mode=0700
+
+- name: copy config.json
+  copy: src=config.json dest=/root/.docker/ mode=0600
+
+- name: add listen port 4243
+  replace: path=/usr/lib/systemd/system/docker.service regexp='^(ExecStart=.*[^3]$)' replace='\1 -H {{ DOCKER_LISTEN }}'
+
+- name: add xg.cc to hosts registry
+  lineinfile: path=/etc/hosts regexp='xg.cc' line='{{ REGISTRY }}    xg.cc' state=present
+
+- name: add dockerCA.crt
+  copy: src=devdockerCA.crt dest=/etc/pki/ca-trust/source/anchors/
+
+- name: update-ca-trust
+  shell: update-ca-trust extract
+
+- name: enable docker.service
+  command: systemctl enable docker
+  notify:
+  - start docker
+
+#- name: copy iptables.sh
+#  template: src=iptables.sh.j2 dest=/opt/sh/iptables.sh mode=755
+#  notify:
+#  - start iptables
+

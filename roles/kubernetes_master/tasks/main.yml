@@ -1,0 +1,60 @@
+---
+# kube-apiserver
+- name: copy key 1
+  copy: src=kubernetes-key.pem dest=/etc/kubernetes/cert/
+
+- name: copy key 2
+  copy: src=kubernetes.pem dest=/etc/kubernetes/cert/
+
+- name: mkdir kube-apiserver log
+  file: path=/var/log/k8s/kube-apiserver/ state=directory
+
+- name: encode config
+  template: src=encryption-config.yaml.j2 dest=/etc/kubernetes/encryption-config.yaml
+
+- name: copy kube-apiserver exec file
+  copy: src=kube-apiserver dest=/opt/k8s/bin/ mode=755
+
+- name: copy kube-apiserver Unit file
+  template: src=kube-apiserver.service.j2 dest=/etc/systemd/system/kube-apiserver.service
+  notify:
+  - reload systemd
+  - restart kube-apiserver
+
+# kube-controller-manager
+- name: copy kube-controller-manager key 1
+  copy: src=kube-controller-manager-key.pem dest=/etc/kubernetes/cert/
+
+- name: copy kube-controller-manager key 2
+  copy: src=kube-controller-manager.pem dest=/etc/kubernetes/cert/
+
+- name: copy kube-controller-manager exec file
+  copy: src=kube-controller-manager dest=/opt/k8s/bin/ mode=755
+
+- name: copy kube-controller-manager.kubeconfig file
+  template: src=kube-controller-manager.kubeconfig.j2 dest=/etc/kubernetes/kube-controller-manager.kubeconfig
+
+- name: mkdir kube-controller-manager log
+  file: path=/var/log/k8s/kube-controller-manager/ state=directory
+
+- name: copy kube-controller-manager unit file
+  template: src=kube-controller-manager.service.j2 dest=/etc/systemd/system/kube-controller-manager.service
+  notify:
+  - reload systemd
+  - restart kube-controller-manager
+
+# kube-scheduler
+- name: copy kube-scheduler exec file
+  copy: src=kube-scheduler dest=/opt/k8s/bin/ mode=755
+
+- name: copy kube-scheduler.kubeconfig file
+  template: src=kube-scheduler.kubeconfig.j2 dest=/etc/kubernetes/kube-scheduler.kubeconfig
+
+- name: mkdir kube-scheduler log
+  file: path=/var/log/k8s/kube-scheduler/ state=directory
+
+- name: copy kube-scheduler unit file
+  template: src=kube-scheduler.service.j2 dest=/etc/systemd/system/kube-scheduler.service
+  notify:
+  - reload systemd
+  - restart kube-scheduler
