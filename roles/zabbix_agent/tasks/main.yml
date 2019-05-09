@@ -18,5 +18,8 @@
   notify:
   - start zabbix_agent
 
+- name: copy check_container_running file
+  copy: src=heck_container_running dest=/data/zabbix/bin/ mode=755
+
 - name: add started
   lineinfile: path=/etc/rc.local regexp=zabbix_agentd state=present line='/data/zabbix/sbin/zabbix_agentd'

@@ -278,7 +278,7 @@ Hostname={{ ansible_default_ipv4.address }}
 # Mandatory: no
 # Range: 0-1
 # Default:
-# UnsafeUserParameters=0
+UnsafeUserParameters=1
 
 ### Option: UserParameter
 #	User-defined parameter to monitor. There can be several user-defined parameters.
@@ -288,6 +288,7 @@ Hostname={{ ansible_default_ipv4.address }}
 # Mandatory: no
 # Default:
 # UserParameter=
+UserParameter=check_container[*],/data/zabbix/bin/check_container_running
 
 ####### LOADABLE MODULES #######
 
