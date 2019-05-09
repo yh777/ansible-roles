@@ -11,6 +11,15 @@
 - name: install rpm packages
   shell: yum install -y vim lrzsz iptables-services tree unzip telnet yum-utils bridge-utils bind-utils net-tools wget cmake gcc gcc-c++ ncurses-devel perl-Data-Dumper pcre-devel zlib-devel openssl-devel make sysstat screen iptraf htop iftop iotop ntpdate sshpass lsof traceroute attr rsync psmisc aria2 nc git pcre-devel
 
+- name: copy get-pip.py file
+  copy: src=get-pip.py dest=/tmp/
+
+- name: install pip
+  shell: cd /tmp && python get-pip.py
+
+- name: install python modules
+  shell: pip install requests
+
 - name: time sync
   lineinfile: dest=/etc/crontab regexp='ntpdate time1.aliyun.com' line='*/7 * * * * root /usr/sbin/ntpdate time1.aliyun.com' state=present
 

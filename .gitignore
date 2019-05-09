@@ -5,3 +5,5 @@ kube-scheduler
 
 kubelet
 kube-proxy
+
+test.yml

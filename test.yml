@@ -1,5 +1,5 @@
 ---
-- hosts: es01
+- hosts: test3
   gather_facts: yes
   roles:
     - common
