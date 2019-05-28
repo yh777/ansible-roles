@@ -27,12 +27,20 @@
   service: name=ntpd state=stopped enabled=false
   ignore_errors: yes
 
+- name: disable ntpdate
+  service: name=ntpdate state=stopped enabled=false
+  ignore_errors: yes
+
 - name: disable postfix
   service: name=postfix state=stopped enabled=false
   ignore_errors: yes
 
 - name: disable rpcbind
   service: name=rpcbind state=stopped enabled=false
+  ignore_errors: yes
+
+- name: disable rpcbind.socket
+  service: name=rpcbind.socket state=stopped enabled=false
   ignore_errors: yes
 
 - name: add +x rc.local
