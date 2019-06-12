@@ -13,12 +13,15 @@
 
 - name: copy get-pip.py file
   copy: src=get-pip.py dest=/tmp/
+  ignore_errors: yes
 
 - name: install pip
   shell: cd /tmp && python get-pip.py
+  ignore_errors: yes
 
 - name: install python modules
   shell: pip install requests
+  ignore_errors: yes
 
 - name: time sync
   lineinfile: dest=/etc/crontab regexp='ntpdate time1.aliyun.com' line='*/7 * * * * root /usr/sbin/ntpdate time1.aliyun.com' state=present
@@ -45,6 +48,18 @@
 
 - name: add +x rc.local
   file: path=/etc/rc.d/rc.local mode=755
+
+- name: add group nginx
+  group: name=nginx state=present gid=9004
+
+- name: add user nginx
+  user: name=nginx state=present uid=9004 group=nginx shell=/sbin/nologin createhome=no
+
+- name: add group apache
+  group: name=apache state=present gid=9002
+
+- name: add user apache
+  user: name=apache state=present uid=9002 group=apache shell=/sbin/nologin createhome=no
 
 
 
