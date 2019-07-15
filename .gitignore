@@ -7,3 +7,4 @@ kubelet
 kube-proxy
 
 test.yml
+zabbix.yml
