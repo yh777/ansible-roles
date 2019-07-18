@@ -1,7 +1,5 @@
 ---
-- hosts: test2
+- hosts: test3,test4,test5
   gather_facts: yes
   roles:
     - common
-    - docker
-    - zabbix_agent
