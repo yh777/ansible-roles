@@ -1,3 +1,21 @@
+升级内核
+
+关闭 NUMA
+
+cp /etc/default/grub{,.bak}
+vim /etc/default/grub # 在 GRUB_CMDLINE_LINUX 一行添加 `numa=off` 参数，如下所示：
+diff /etc/default/grub.bak /etc/default/grub
+6c6
+< GRUB_CMDLINE_LINUX="crashkernel=auto rd.lvm.lv=centos/root rhgb quiet"
+---
+> GRUB_CMDLINE_LINUX="crashkernel=auto rd.lvm.lv=centos/root rhgb quiet numa=off"
+
+重新生成 grub2 配置文件：
+
+cp /boot/grub2/grub.cfg{,.bak}
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+
 管理节点组件(kubernetes_mgr.yml): 所有节点都需要提前安装这个
     kubeadm
     kubectl
