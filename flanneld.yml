@@ -1,0 +1,5 @@
+---
+- hosts: test1,test2,test3
+  gather_facts: yes
+  roles:
+    - flanneld

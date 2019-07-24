@@ -14,6 +14,16 @@
 - name: disable swap
   shell: swapoff -a && sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
 
+- name: disable firewalld
+  shell: systemctl stop firewalld && systemctl disable firewalld
+  ignore_errors: yes
+
+- name: enable iptables
+  shell: systemctl start iptables && systemctl enable iptables
+
+- name: clean iptables
+  shell: iptables -F && iptables -X && iptables -F -t nat && iptables -X -t nat && iptables -P FORWARD ACCEPT
+
 - name: load modules
   shell: modprobe br_netfilter || modprobe ip_vs
 
@@ -56,6 +66,8 @@
   template: src=kubectl.kubeconfig.j2 dest=~/.kube/config
 
 
+- name: add directory /etc/kubernetes/cert
+  file: name=/etc/kubernetes/cert/ state=directory
 
 - name: copy ca 1
   copy: src=ca-config.json dest=/etc/kubernetes/cert/
