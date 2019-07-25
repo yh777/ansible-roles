@@ -4,12 +4,10 @@ Documentation=https://github.com/GoogleCloudPlatform/kubernetes
 After=network.target
 
 [Service]
-#WorkingDirectory=/mnt/disk0/k8s/kube-proxy
+WorkingDirectory=/data/k8s//kube-proxy
 ExecStart=/opt/k8s/bin/kube-proxy \
-  --config=/etc/kubernetes/kube-proxy.config.yaml \
-  --alsologtostderr=true \
-  --logtostderr=false \
-  --log-dir=/var/log/k8s/kube-proxy/ \
+  --config=/etc/kubernetes/kube-proxy-config.yaml \
+  --logtostderr=true \
   --v=2
 Restart=on-failure
 RestartSec=5

@@ -4,25 +4,31 @@
   copy: src=docker dest=/opt/k8s/bin/ mode=755
 
 - name: copy docker exec file 2
-  copy: src=docker-containerd dest=/opt/k8s/bin/ mode=755
+  copy: src=ctr dest=/opt/k8s/bin/ mode=755
 
 - name: copy docker exec file 3
-  copy: src=docker-containerd-ctr dest=/opt/k8s/bin/ mode=755
+  copy: src=containerd-shim dest=/opt/k8s/bin/ mode=755
 
 - name: copy docker exec file 4
-  copy: src=docker-containerd-shim dest=/opt/k8s/bin/ mode=755
-
-- name: copy docker exec file 5
   copy: src=dockerd dest=/opt/k8s/bin/ mode=755
 
-- name: copy docker exec file 6
+- name: copy docker exec file 5
   copy: src=docker-init dest=/opt/k8s/bin/ mode=755
 
-- name: copy docker exec file 7
+- name: copy docker exec file 6
   copy: src=docker-proxy dest=/opt/k8s/bin/ mode=755
 
+- name: copy docker exec file 7
+  copy: src=runc dest=/opt/k8s/bin/ mode=755
+
 - name: copy docker exec file 8
-  copy: src=docker-runc dest=/opt/k8s/bin/ mode=755
+  copy: src=containerd dest=/opt/k8s/bin/ mode=755
+
+- name: mkdir /data/k8s/docker/data
+  file: name=/data/k8s/docker/data state=directory
+
+- name: mkdir /data/k8s/docker/exec
+  file: name=/data/k8s/docker/exec state=directory
 
 - name: mkdir /etc/docker 
   file: name=/etc/docker state=directory
@@ -37,6 +43,9 @@
   - restart dockerd
 
 # install kubelet
+- name: mkdir /data/k8s/kubelet
+  file: name=/data/k8s/kubelet state=directory
+
 - name: copy kubelet exec file
   copy: src=kubelet dest=/opt/k8s/bin/ mode=755
 
@@ -45,8 +54,8 @@
   notify:
   - exec kubelet_bootstrap_kubeconfig.sh
 
-- name: copy kubelet.config.json file
-  template: src=kubelet.config.json.j2 dest=/etc/kubernetes/kubelet.config.json
+- name: copy kubelet-config.yaml file
+  template: src=kubelet-config.yaml.j2 dest=/etc/kubernetes/kubelet-config.yaml
   notify:
   - restart kubelet 
 
@@ -60,14 +69,17 @@
   - restart kubelet 
 
 # install kube-proxy
+- name: mkdir /data/k8s//kube-proxy
+  file: name=/data/k8s//kube-proxy state=directory
+
 - name: copy kube-proxy exec file
   copy: src=kube-proxy dest=/opt/k8s/bin/ mode=755
 
 - name: copy kube-proxy.kubeconfig file
   template: src=kube-proxy.kubeconfig.j2 dest=/etc/kubernetes/kube-proxy.kubeconfig
 
-- name: copy kube-proxy.config.yaml file
-  template: src=kube-proxy.config.yaml.j2 dest=/etc/kubernetes/kube-proxy.config.yaml
+- name: copy kube-proxy-config.yaml file
+  template: src=kube-proxy-config.yaml.j2 dest=/etc/kubernetes/kube-proxy-config.yaml
 
 - name: mkdir kube-proxy log
   file: name=/var/log/k8s/kube-proxy/ state=directory

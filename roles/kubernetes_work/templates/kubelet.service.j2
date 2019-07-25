@@ -5,21 +5,26 @@ After=docker.service
 Requires=docker.service
 
 [Service]
-#WorkingDirectory=/mnt/disk0/k8s/kubelet
+WorkingDirectory=/data/k8s/kubelet
 ExecStart=/opt/k8s/bin/kubelet \
+  --allow-privileged=true \
   --bootstrap-kubeconfig=/etc/kubernetes/kubelet-bootstrap.kubeconfig \
   --cert-dir=/etc/kubernetes/cert \
+  --cni-conf-dir=/etc/cni/net.d \
+  --container-runtime=docker \
+  --container-runtime-endpoint=unix:///var/run/dockershim.sock \
+  --root-dir=/data/k8s/kubelet \
   --kubeconfig=/etc/kubernetes/kubelet.kubeconfig \
-  --config=/etc/kubernetes/kubelet.config.json \
+  --config=/etc/kubernetes/kubelet-config.yaml \
   --hostname-override={{ ansible_hostname }} \
-  --cadvisor-port=4194 \
-  --pod-infra-container-image=registry.access.redhat.com/rhel7/pod-infrastructure:latest \
-  --logtostderr=false \
-  --alsologtostderr=true \
-  --log-dir=/var/log/k8s/kubelet/ \
+  --pod-infra-container-image=registry.cn-beijing.aliyuncs.com/k8s_images/pause-amd64:3.1 \
+  --image-pull-progress-deadline=15m \
+  --volume-plugin-dir=/data/k8s/kubelet/kubelet-plugins/volume/exec/ \
+  --logtostderr=true \
   --v=2
-Restart=on-failure
+Restart=always
 RestartSec=5
+StartLimitInterval=0
 
 [Install]
 WantedBy=multi-user.target
