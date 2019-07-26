@@ -1,2 +1,2 @@
 ---
-KUBE_APISERVER: "https://10.254.0.1:443"
+KUBE_APISERVER: "https://192.168.99.101:6443"
