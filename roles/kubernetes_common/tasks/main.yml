@@ -19,7 +19,7 @@
   ignore_errors: yes
 
 - name: enable iptables
-  shell: > /etc/sysconfig/iptables && systemctl start iptables && systemctl enable iptables
+  shell: rm -rf /etc/sysconfig/iptables && touch /etc/sysconfig/iptables && systemctl start iptables && systemctl enable iptables
 
 - name: clean iptables
   shell: iptables -F && iptables -X && iptables -F -t nat && iptables -X -t nat && iptables -P FORWARD ACCEPT
