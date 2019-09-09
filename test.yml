@@ -1,6 +1,6 @@
 ---
-- hosts: test1,test2,test3,test4,test5
+- hosts: test4
   gather_facts: yes
   roles:
     - common
-    - kubernetes_common
+    - docker
