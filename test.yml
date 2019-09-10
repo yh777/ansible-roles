@@ -1,6 +1,5 @@
 ---
-- hosts: test4
+- hosts: test3
   gather_facts: yes
   roles:
-    - common
-    - docker
+    - kernel_update7
