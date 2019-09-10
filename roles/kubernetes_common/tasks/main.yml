@@ -32,6 +32,7 @@
 
 - name: run file
   shell: sysctl -p /etc/sysctl.d/kubernetes.conf
+  ignore_errors: yes
 
 - name: add rc.local1
   lineinfile: path=/etc/rc.local regexp='modprobe br_netfilter' line='modprobe br_netfilter'
