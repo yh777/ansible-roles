@@ -1,0 +1,18 @@
+---
+- name: add hosts 1
+  lineinfile: path=/etc/hosts regexp="192.168.99.101 test101" line="192.168.99.101 test101"
+
+- name: add hosts 2
+  lineinfile: path=/etc/hosts regexp="192.168.99.102 test102" line="192.168.99.102 test102"
+
+- name: add hosts 3
+  lineinfile: path=/etc/hosts regexp="192.168.99.103 test103" line="192.168.99.103 test103"
+
+- name: add hosts 4
+  lineinfile: path=/etc/hosts regexp="192.168.99.104 test104" line="192.168.99.104 test104"
+
+- name: add hosts 5
+  lineinfile: path=/etc/hosts regexp="192.168.99.105 test105" line="192.168.99.105 test105"
+
+- name: add hosts 6
+  lineinfile: path=/etc/hosts regexp="192.168.99.106 test106" line="192.168.99.106 test106"

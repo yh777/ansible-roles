@@ -6,7 +6,7 @@ Documentation=http://docs.docker.io
 WorkingDirectory=/data/k8s/docker
 Environment="PATH=/opt/k8s/bin:/bin:/sbin:/usr/bin:/usr/sbin"
 EnvironmentFile=-/run/flannel/docker
-ExecStart=/opt/k8s/bin/dockerd $DOCKER_NETWORK_OPTIONS
+ExecStart=/opt/k8s/bin/dockerd $DOCKER_NETWORK_OPTIONS -H 127.0.0.1:4243
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=on-failure
 RestartSec=5

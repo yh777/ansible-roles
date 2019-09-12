@@ -16,7 +16,7 @@
   copy: src=proxy-client.pem dest=/etc/kubernetes/cert/
 
 - name: mkdir kube-apiserver log
-  file: path=/var/log/k8s/kube-apiserver/ state=directory
+  file: path=/data/k8s/logs/kube-apiserver state=directory
 
 - name: encode config
   template: src=encryption-config.yaml.j2 dest=/etc/kubernetes/encryption-config.yaml
@@ -44,7 +44,7 @@
   template: src=kube-controller-manager.kubeconfig.j2 dest=/etc/kubernetes/kube-controller-manager.kubeconfig
 
 - name: mkdir kube-controller-manager log
-  file: path=/var/log/k8s/kube-controller-manager/ state=directory
+  file: path=/data/k8s/logs/kube-controller-manager state=directory
 
 - name: copy kube-controller-manager unit file
   template: src=kube-controller-manager.service.j2 dest=/etc/systemd/system/kube-controller-manager.service
@@ -69,7 +69,7 @@
   template: src=kube-scheduler.yaml.j2 dest=/etc/kubernetes/kube-scheduler.yaml
 
 - name: mkdir kube-scheduler log
-  file: path=/var/log/k8s/kube-scheduler/ state=directory
+  file: path=/data/k8s/logs/kube-scheduler state=directory
 
 - name: copy kube-scheduler unit file
   template: src=kube-scheduler.service.j2 dest=/etc/systemd/system/kube-scheduler.service

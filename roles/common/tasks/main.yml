@@ -64,8 +64,17 @@
 - name: add user apache
   user: name=apache state=present uid=9002 group=apache shell=/sbin/nologin createhome=no
 
+- name: add history
+  lineinfile: regexp="HISTFILESIZE" path=/etc/profile backrefs=no line="\nHISTFILESIZE=2000"
 
+- name: add history
+  lineinfile: regexp="HISTSIZE" path=/etc/profile backrefs=no line="HISTSIZE=2000"
 
+- name: add history
+  lineinfile: regexp="HISTTIMEFORMAT" path=/etc/profile backrefs=no line='HISTTIMEFORMAT="%Y%m%d-%H%M%S:"'
+
+- name: add history
+  lineinfile: regexp="export HISTTIMEFORMAT" path=/etc/profile backrefs=no line="export HISTTIMEFORMAT"
 
 #- name: alter sshd port
 #  shell: sed -i 's/^#Port 22$/Port 37212/' /etc/ssh/sshd_config
