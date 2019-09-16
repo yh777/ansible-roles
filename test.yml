@@ -1,5 +1,7 @@
 ---
-- hosts: test1
+- hosts: master
   gather_facts: yes
   roles:
-    - kernel_update7
+    - add_hosts
+    - common
+    - kubernetes_common

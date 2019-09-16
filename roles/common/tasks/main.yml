@@ -1,7 +1,4 @@
 ---
-- name: yum update
-  shell: yum -y update
-
 - name: disable Selinux 1
   replace: path=/etc/sysconfig/selinux regexp='SELINUX=enforcing' replace='SELINUX=disabled'
 
