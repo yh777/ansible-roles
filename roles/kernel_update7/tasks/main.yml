@@ -1,12 +1,19 @@
 ---
 - name: install ELRepo
   shell: rpm --import https://www.elrepo.org/RPM-GPG-KEY-elrepo.org && rpm -Uvh https://www.elrepo.org/elrepo-release-7.0-4.el7.elrepo.noarch.rpm
+  ignore_errors: yes
 
 - name: install kernel
   yum: enablerepo=elrepo-kernel name=kernel-ml
 
-- name: set boot kernel
-  lineinfile: path=/etc/default/grub regexp="GRUB_DEFAULT=" line="GRUB_DEFAULT=0"
+- name: set boot kernel 1
+  copy: src=set_boot_kernel.sh dest=/tmp/ mode=755
+
+- name: set boot kernel 2
+  shell: /tmp/set_boot_kernel.sh
+
+- name: set boot kernel 3
+  file: path=/tmp/set_boot_kernel.sh state=absent
 
 - name: cp /etc/default/grub
   shell: cp /etc/default/grub /etc/default/grub.bak

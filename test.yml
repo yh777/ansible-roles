@@ -1,5 +1,5 @@
 ---
-- hosts: master
+- hosts: test1
   gather_facts: yes
   roles:
-    - kubernetes_work
+    - kernel_update7
