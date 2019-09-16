@@ -1,4 +1,7 @@
 ---
+- name: add yum.conf
+  lineinfile: regexp="exclude=kernel kernel-source kernel-smp" path=/etc/yum.conf backrefs=no line="exclude=kernel kernel-source kernel-smp"
+
 - name: yum update
   shell: yum -y update
 
