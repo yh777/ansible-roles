@@ -2,5 +2,4 @@
 - hosts: test5
   gather_facts: yes
   roles:
-    - common
-    - kernel_update7
+    - kubernetes_common

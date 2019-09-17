@@ -12,6 +12,9 @@
 - name: install kernel
   yum: enablerepo=elrepo-kernel name=kernel-ml
 
+- name: cp /etc/default/grub
+  shell: cp /etc/default/grub /etc/default/grub.bak
+
 - name: set boot kernel 1
   copy: src=set_boot_kernel.sh dest=/tmp/ mode=755
 
@@ -20,12 +23,6 @@
 
 - name: set boot kernel 3
   file: path=/tmp/set_boot_kernel.sh state=absent
-
-- name: cp /etc/default/grub
-  shell: cp /etc/default/grub /etc/default/grub.bak
-
-- name: add numa=off
-  shell: sed -i 's/\(^GRUB_CMDLINE_LINUX=".*\)"$/\1 numa=off"/' /etc/default/grub
 
 - name: grub2-mkconfig
   shell: grub2-mkconfig -o /boot/grub2/grub.cfg
