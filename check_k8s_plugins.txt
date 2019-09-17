@@ -1,0 +1,555 @@
+kubernetes
+验证k8s验证 检查K8S检查
+/var/lib/docker
+
+systemctl status etcd|grep Active
+
+    ETCDCTL_API=3 /opt/k8s/bin/etcdctl \
+    --endpoints=https://192.168.99.101:2379 \
+    --cacert=/etc/kubernetes/cert/ca.pem \
+    --cert=/etc/etcd/cert/etcd.pem \
+    --key=/etc/etcd/cert/etcd-key.pem endpoint health
+
+"test101=https://192.168.99.101:2380,test102=https://192.168.99.102:2380,test103=https://192.168.99.103:2380"
+
+查看当前leader
+ETCDCTL_API=3 /opt/k8s/bin/etcdctl \
+  -w table --cacert=/etc/kubernetes/cert/ca.pem \
+  --cert=/etc/etcd/cert/etcd.pem \
+  --key=/etc/etcd/cert/etcd-key.pem \
+  --endpoints=https://192.168.99.101:2379,https://192.168.99.102:2379,https://192.168.99.103:2379 endpoint status 
+
+
+向 etcd 写入集群 Pod 网段信息
+etcdctl \
+  --endpoints=https://192.168.99.101:2379,https://192.168.99.102:2379,https://192.168.99.103:2379 \
+  --ca-file=/etc/kubernetes/cert/ca.pem \
+  --cert-file=/root/ansible-roles/roles/flanneld/files/flanneld.pem \
+  --key-file=/root/ansible-roles/roles/flanneld/files/flanneld-key.pem \
+  mk /kubernetes/network/config '{"Network":"'172.17.0.0/16'", "SubnetLen": 20, "Backend": {"Type": "vxlan"}}'
+
+systemctl status flanneld|grep Active
+
+检查分配给各 flanneld 的 Pod 网段信息
+查看集群 Pod 网段
+etcdctl \
+  --endpoints=https://192.168.99.101:2379,https://192.168.99.102:2379,https://192.168.99.103:2379 \
+  --ca-file=/etc/kubernetes/cert/ca.pem \
+  --cert-file=/etc/flanneld/cert/flanneld.pem \
+  --key-file=/etc/flanneld/cert/flanneld-key.pem \
+  get /kubernetes/network/config
+
+查看已分配的 Pod 子网段列表
+
+etcdctl \
+  --endpoints=https://192.168.99.101:2379,https://192.168.99.102:2379,https://192.168.99.103:2379 \
+  --ca-file=/etc/kubernetes/cert/ca.pem \
+  --cert-file=/etc/flanneld/cert/flanneld.pem \
+  --key-file=/etc/flanneld/cert/flanneld-key.pem \
+  ls /kubernetes/network/subnets
+
+查看某一 Pod 网段对应的节点 IP 和 flannel 接口地址:
+source /opt/k8s/bin/environment.sh
+etcdctl \
+  --endpoints=${ETCD_ENDPOINTS} \
+  --ca-file=/etc/kubernetes/cert/ca.pem \
+  --cert-file=/etc/flanneld/cert/flanneld.pem \
+  --key-file=/etc/flanneld/cert/flanneld-key.pem \
+  get ${FLANNEL_ETCD_PREFIX}/subnets/172.30.80.0-21
+
+
+
+打印 kube-apiserver 写入 etcd 的数据
+ETCDCTL_API=3 etcdctl \
+    --endpoints=https://192.168.99.101:2379,https://192.168.99.102:2379,https://192.168.99.103:2379 \
+    --cacert=/etc/kubernetes/cert/ca.pem \
+    --cert=/etc/etcd/cert/etcd.pem \
+    --key=/etc/etcd/cert/etcd-key.pem \
+    get /registry/ --prefix --keys-only
+
+检查master运行状态
+systemctl status kube-apiserver |grep Active
+systemctl status kube-controller-manager|grep Active
+systemctl status kube-scheduler|grep Active
+
+检查集群信息
+$ kubectl cluster-info
+
+
+
+查看当前的 leader
+$ kubectl get endpoints kube-controller-manager --namespace=kube-system  -o yaml
+$ kubectl get endpoints kube-scheduler --namespace=kube-system  -o yaml
+
+
+检查集群信息
+
+$ kubectl cluster-info
+Kubernetes master is running at https://127.0.0.1:8443
+
+$ kubectl get all --all-namespaces
+
+$ kubectl get componentstatuses
+
+
+授予 kube-apiserver 访问 kubelet API 的权限
+在执行 kubectl exec、run、logs 等命令时，apiserver 会将请求转发到 kubelet 的 https 端口。这里定义 RBAC 规则，
+授权 apiserver 使用的证书（kubernetes.pem）用户名（CN：kuberntes）访问 kubelet API 的权限：
+
+kubectl create clusterrolebinding kube-apiserver:kubelet-apis --clusterrole=system:kubelet-api-admin --user kubernetes
+
+Bootstrap Token Auth 和授予权限
+默认情况下，这个 user 和 group 没有创建 CSR 的权限，kubelet 启动失败
+解决办法是：创建一个 clusterrolebinding，将 group system:bootstrappers 和 clusterrole system:node-bootstrapper 绑定：
+
+$ kubectl create clusterrolebinding kubelet-bootstrap --clusterrole=system:node-bootstrapper --group=system:bootstrappers
+
+
+手动 approve server cert csr(无法使用logs exec时手动执行)
+基于安全性考虑，CSR approving controllers 不会自动 approve kubelet server 证书签名请求，需要手动 approve：
+$ kubectl get csr
+NAME        AGE     REQUESTOR                    CONDITION
+csr-5f4vh   9m25s   system:bootstrap:82jfrm      Approved,Issued
+$ kubectl certificate approve csr-5r7j7
+
+自动 approve CSR 请求
+创建三个 ClusterRoleBinding，分别用于自动 approve client、renew client、renew server 证书：
+
+cd /opt/k8s/work
+cat > csr-crb.yaml <<EOF
+ # Approve all CSRs for the group "system:bootstrappers"
+ kind: ClusterRoleBinding
+ apiVersion: rbac.authorization.k8s.io/v1
+ metadata:
+   name: auto-approve-csrs-for-group
+ subjects:
+ - kind: Group
+   name: system:bootstrappers
+   apiGroup: rbac.authorization.k8s.io
+ roleRef:
+   kind: ClusterRole
+   name: system:certificates.k8s.io:certificatesigningrequests:nodeclient
+   apiGroup: rbac.authorization.k8s.io
+---
+ # To let a node of the group "system:nodes" renew its own credentials
+ kind: ClusterRoleBinding
+ apiVersion: rbac.authorization.k8s.io/v1
+ metadata:
+   name: node-client-cert-renewal
+ subjects:
+ - kind: Group
+   name: system:nodes
+   apiGroup: rbac.authorization.k8s.io
+ roleRef:
+   kind: ClusterRole
+   name: system:certificates.k8s.io:certificatesigningrequests:selfnodeclient
+   apiGroup: rbac.authorization.k8s.io
+---
+# A ClusterRole which instructs the CSR approver to approve a node requesting a
+# serving cert matching its client cert.
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: approve-node-server-renewal-csr
+rules:
+- apiGroups: ["certificates.k8s.io"]
+  resources: ["certificatesigningrequests/selfnodeserver"]
+  verbs: ["create"]
+---
+ # To let a node of the group "system:nodes" renew its own server credentials
+ kind: ClusterRoleBinding
+ apiVersion: rbac.authorization.k8s.io/v1
+ metadata:
+   name: node-server-cert-renewal
+ subjects:
+ - kind: Group
+   name: system:nodes
+   apiGroup: rbac.authorization.k8s.io
+ roleRef:
+   kind: ClusterRole
+   name: approve-node-server-renewal-csr
+   apiGroup: rbac.authorization.k8s.io
+EOF
+kubectl apply -f csr-crb.yaml
+
+
+systemctl status docker|grep Active
+
+查看 ipvs 路由规则
+/usr/sbin/ipvsadm -ln
+
+
+检查节点状态
+
+$ kubectl get nodes
+NAME             STATUS   ROLES    AGE    VERSION
+zhangjun-k8s01   Ready    <none>   154m   v1.14.2
+zhangjun-k8s02   Ready    <none>   154m   v1.14.2
+zhangjun-k8s03   Ready    <none>   154m   v1.14.2
+
+
+创建测试文件
+
+cat > nginx-ds.yml <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ds
+  labels:
+    app: nginx-ds
+spec:
+  type: NodePort
+  selector:
+    app: nginx-ds
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: nginx-ds
+  labels:
+    addonmanager.kubernetes.io/mode: Reconcile
+spec:
+  template:
+    metadata:
+      labels:
+        app: nginx-ds
+    spec:
+      containers:
+      - name: my-nginx
+        image: nginx:1.7.9
+        ports:
+        - containerPort: 80
+EOF
+
+执行测试
+kubectl create -f nginx-ds.yml
+
+删除测试
+kubectl delete service nginx-ds
+kubectl delete daemonset nginx-ds
+
+
+部署 coredns 插件
+修改配置文件
+
+将下载的 kubernetes-server-linux-amd64.tar.gz 解压后，再解压其中的 kubernetes-src.tar.gz 文件。
+
+tar -xzvf kubernetes-src.tar.gz
+
+coredns 目录是 cluster/addons/dns：
+
+cd kubernetes/cluster/addons/dns/coredns
+cp coredns.yaml.base coredns.yaml
+source /opt/k8s/bin/environment.sh
+sed -i -e "s/__PILLAR__DNS__DOMAIN__/cluster.local/" -e "s/__PILLAR__DNS__SERVER__/10.254.0.2/" coredns.yaml
+把文件中k8s.gcr.io/coredns:1.3.1 替换为 gcr.azk8s.cn/google_containers/coredns:1.3.1
+
+创建 coredns
+kubectl create -f coredns.yaml
+
+检查 coredns 功能
+$ kubectl get all -n kube-system
+
+新建一个 Deployment
+cat > my-nginx.yaml <<EOF
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: my-nginx
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        run: my-nginx
+    spec:
+      containers:
+      - name: my-nginx
+        image: nginx:1.7.9
+        ports:
+        - containerPort: 80
+EOF
+kubectl create -f my-nginx.yaml
+
+export 该 Deployment, 生成 my-nginx 服务：
+$ kubectl expose deploy my-nginx
+service "my-nginx" exposed
+
+$ kubectl get services --all-namespaces |grep my-nginx
+default       my-nginx     ClusterIP   10.254.38.37    <none>        80/TCP                   7s
+
+创建另一个 Pod，查看 /etc/resolv.conf 是否包含 kubelet 配置的 --cluster-dns 和 --cluster-domain，
+是否能够将服务 my-nginx 解析到上面显示的 Cluster IP 10.254.242.255
+
+cat > dnsutils-ds.yml <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: dnsutils-ds
+  labels:
+    app: dnsutils-ds
+spec:
+  type: NodePort
+  selector:
+    app: dnsutils-ds
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: dnsutils-ds
+  labels:
+    addonmanager.kubernetes.io/mode: Reconcile
+spec:
+  template:
+    metadata:
+      labels:
+        app: dnsutils-ds
+    spec:
+      containers:
+      - name: my-dnsutils
+        image: tutum/dnsutils:latest
+        command:
+          - sleep
+          - "3600"
+        ports:
+        - containerPort: 80
+EOF
+kubectl create -f dnsutils-ds.yml
+
+$ kubectl get pods -lapp=dnsutils-ds
+NAME                READY   STATUS    RESTARTS   AGE
+dnsutils-ds-57xqd   1/1     Running   0          101s
+dnsutils-ds-5fdmb   1/1     Running   0          101s
+dnsutils-ds-9twwf   1/1     Running   0          101s
+
+$ kubectl -it exec dnsutils-ds-57xqd  bash
+root@dnsutils-ds-57xqd:/# cat /etc/resolv.conf
+nameserver 10.254.0.2
+search default.svc.cluster.local svc.cluster.local cluster.local onecloud.local
+options ndots:5
+
+$ kubectl exec dnsutils-ds-57xqd nslookup kubernetes
+Server:         10.254.0.2
+Address:        10.254.0.2#53
+
+Name:   kubernetes.default.svc.cluster.local
+Address: 10.254.0.1
+
+$ kubectl exec dnsutils-ds-57xqd nslookup www.baidu.com
+Server:         10.254.0.2
+Address:        10.254.0.2#53
+
+Non-authoritative answer:
+www.baidu.com   canonical name = www.a.shifen.com.
+Name:   www.a.shifen.com
+Address: 61.135.169.121
+Name:   www.a.shifen.com
+Address: 61.135.169.125
+
+$ kubectl exec dnsutils-ds-57xqd nslookup my-nginx
+Server:         10.254.0.2
+Address:        10.254.0.2#53
+
+Name:   my-nginx.default.svc.cluster.local
+Address: 10.254.38.37
+
+$ kubectl exec dnsutils-ds-57xqd nslookup kube-dns.kube-system.svc.cluster
+Server:         10.254.0.2
+Address:        10.254.0.2#53
+
+** server can't find kube-dns.kube-system.svc.cluster: SERVFAIL
+
+command terminated with exit code 1
+
+$ kubectl exec dnsutils-ds-57xqd nslookup kube-dns.kube-system.svc
+Server:         10.254.0.2
+Address:        10.254.0.2#53
+
+Name:   kube-dns.kube-system.svc.cluster.local
+Address: 10.254.0.2
+
+$ kubectl exec dnsutils-ds-57xqd nslookup kube-dns.kube-system.svc.cluster.local
+Server:         10.254.0.2
+Address:        10.254.0.2#53
+
+Name:   kube-dns.kube-system.svc.cluster.local
+Address: 10.254.0.2
+
+$ kubectl exec dnsutils-ds-57xqd nslookup kube-dns.kube-system.svc.cluster.local.
+Server:         10.254.0.2
+Address:        10.254.0.2#53
+
+Name:   kube-dns.kube-system.svc.cluster.local
+Address: 10.254.0.2
+
+
+部署 dashboard 插件
+将下载的 kubernetes-server-linux-amd64.tar.gz 解压后，再解压其中的 kubernetes-src.tar.gz 文件。
+
+tar -xzvf kubernetes-src.tar.gz
+
+dashboard 对应的目录是：cluster/addons/dashboard：
+
+cd kubernetes/cluster/addons/dashboard
+
+修改 service 定义，指定端口类型为 NodePort，这样外界可以通过地址 NodeIP:NodePort 访问 dashboard；
+
+$ cat dashboard-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubernetes-dashboard
+  namespace: kube-system
+  labels:
+    k8s-app: kubernetes-dashboard
+    kubernetes.io/cluster-service: "true"
+    addonmanager.kubernetes.io/mode: Reconcile
+spec:
+  type: NodePort # 增加这一行
+  selector:
+    k8s-app: kubernetes-dashboard
+  ports:
+  - port: 443
+    targetPort: 8443
+
+执行所有定义文件  dashboard-controller.yaml文件中k8s.gcr.io/kubernetes-dashboard-amd64:v1.10.1替换成gcr.azk8s.cn/google_containers/kubernetes-dashboard-amd64:v1.10.1
+$ ls *.yaml
+dashboard-configmap.yaml  dashboard-controller.yaml  dashboard-rbac.yaml  dashboard-secret.yaml  dashboard-service.yaml
+
+$ kubectl apply -f  .
+
+
+查看分配的 NodePort
+
+$ kubectl get deployment kubernetes-dashboard  -n kube-system
+NAME                   DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+kubernetes-dashboard   1         1         1            1           2m
+
+$ kubectl --namespace kube-system get pods -o wide
+NAME                                    READY   STATUS    RESTARTS   AGE   IP            NODE             NOMINATED NODE   READINESS GATES
+coredns-5b969f4c88-jb6jg                1/1     Running   0          72m   172.30.80.3   zhangjun-k8s01   <none>           <none>
+kubernetes-dashboard-85bcf5dbf8-5l56v   1/1     Running   0          27s   172.30.80.6   zhangjun-k8s01   <none>           <none>
+
+$ kubectl get services kubernetes-dashboard -n kube-system
+NAME                   TYPE       CLUSTER-IP       EXTERNAL-IP   PORT(S)         AGE
+kubernetes-dashboard   NodePort   10.254.249.138   <none>        443:32731/TCP   42s
+
+NodePort 32731 映射到 dashboard pod 443 端口；
+
+查看 dashboard 支持的命令行参数
+
+$ kubectl exec --namespace kube-system -it kubernetes-dashboard-85bcf5dbf8-5l56v  -- /dashboard --help # kubernetes-dashboard-85bcf5dbf8-5l56v 为 pod 名称
+2019/05/26 09:12:16 Starting overwatch
+Usage of /dashboard:
+      --alsologtostderr                  log to standard error as well as files
+      --api-log-level string             Level of API request logging. Should be one of 'INFO|NONE|DEBUG'. Default: 'INFO'. (default "INFO")
+      --apiserver-host string            The address of the Kubernetes Apiserver to connect to in the format of protocol://address:port, e.g., http://localhost:8080. If not specified, the assumption is that the binary runs inside a Kubernetes cluster and local discovery is attempted.
+      --authentication-mode strings      Enables authentication options that will be reflected on login screen. Supported values: token, basic. Default: token.Note that basic option should only be used if apiserver has '--authorization-mode=ABAC' and '--basic-auth-file' flags set. (default [token])
+      --auto-generate-certificates       When set to true, Dashboard will automatically generate certificates used to serve HTTPS. Default: false.
+      --bind-address ip                  The IP address on which to serve the --secure-port (set to 0.0.0.0 for all interfaces). (default 0.0.0.0)
+      --default-cert-dir string          Directory path containing '--tls-cert-file' and '--tls-key-file' files. Used also when auto-generating certificates flag is set. (default "/certs")
+      --disable-settings-authorizer      When enabled, Dashboard settings page will not require user to be logged in and authorized to access settings page.
+      --enable-insecure-login            When enabled, Dashboard login view will also be shown when Dashboard is not served over HTTPS. Default: false.
+      --enable-skip-login                When enabled, the skip button on the login page will be shown. Default: false.
+      --heapster-host string             The address of the Heapster Apiserver to connect to in the format of protocol://address:port, e.g., http://localhost:8082. If not specified, the assumption is that the binary runs inside a Kubernetes cluster and service proxy will be used.
+      --insecure-bind-address ip         The IP address on which to serve the --port (set to 0.0.0.0 for all interfaces). (default 127.0.0.1)
+      --insecure-port int                The port to listen to for incoming HTTP requests. (default 9090)
+      --kubeconfig string                Path to kubeconfig file with authorization and master location information.
+      --log_backtrace_at traceLocation   when logging hits line file:N, emit a stack trace (default :0)
+      --log_dir string                   If non-empty, write log files in this directory
+      --logtostderr                      log to standard error instead of files
+      --metric-client-check-period int   Time in seconds that defines how often configured metric client health check should be run. Default: 30 seconds. (default 30)
+      --port int                         The secure port to listen to for incoming HTTPS requests. (default 8443)
+      --stderrthreshold severity         logs at or above this threshold go to stderr (default 2)
+      --system-banner string             When non-empty displays message to Dashboard users. Accepts simple HTML tags. Default: ''.
+      --system-banner-severity string    Severity of system banner. Should be one of 'INFO|WARNING|ERROR'. Default: 'INFO'. (default "INFO")
+      --tls-cert-file string             File containing the default x509 Certificate for HTTPS.
+      --tls-key-file string              File containing the default x509 private key matching --tls-cert-file.
+      --token-ttl int                    Expiration time (in seconds) of JWE tokens generated by dashboard. Default: 15 min. 0 - never expires (default 900)
+  -v, --v Level                          log level for V logs
+      --vmodule moduleSpec               comma-separated list of pattern=N settings for file-filtered logging
+pflag: help requested
+command terminated with exit code 2
+
+dashboard 的 --authentication-mode 支持 token、basic，默认为 token。如果使用 basic，则 kube-apiserver 必须配置 --authorization-mode=ABAC 和 --basic-auth-file 参数
+
+访问 dashboard
+
+从 1.7 开始，dashboard 只允许通过 https 访问，如果使用 kube proxy 则必须监听 localhost 或 127.0.0.1。对于 NodePort 没有这个限制，但是仅建议在开发环境中使用。
+
+对于不满足这些条件的登录访问，在登录成功后浏览器不跳转，始终停在登录界面。
+
+    kubernetes-dashboard 服务暴露了 NodePort，可以使用 https://NodeIP:NodePort 地址访问 dashboard；
+    通过 kube-apiserver 访问 dashboard；
+    通过 kubectl proxy 访问 dashboard：
+
+如果使用了 VirtualBox，需要启用 VirtualBox 的 ForworadPort 功能将虚机监听的端口和 Host 的本地端口绑定
+
+
+通过 kube-apiserver 访问 dashboard
+
+获取集群服务地址列表：
+
+$ kubectl cluster-info
+Kubernetes master is running at https://127.0.0.1:8443
+CoreDNS is running at https://127.0.0.1:8443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+kubernetes-dashboard is running at https://127.0.0.1:8443/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy
+
+To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+
+    由于 apiserver 通过本地的 kube-nginx 做了代理，所以上面显示的 127.0.0.1:8443 为本地的 kube-nginx 的 IP 和 Port，浏览器访问时需要替换为 kube-apiserver 实际监听的 IP 和端口，如 172.27.137.240:6443；
+    必须通过 kube-apiserver 的安全端口(https)访问 dashbaord，访问时浏览器需要使用自定义证书，否则会被 kube-apiserver 拒绝访问。
+    创建和导入自定义证书的步骤，参考：A.浏览器访问kube-apiserver安全端口
+
+浏览器访问 URL：https://172.27.137.240:6443/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy 对于 virtuabox 做了端口映射： http://127.0.0.1:6443/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/
+
+
+创建登录 Dashboard 的 token 和 kubeconfig 配置文件
+
+dashboard 默认只支持 token 认证（不支持 client 证书认证），所以如果使用 Kubeconfig 文件，需要将 token 写入到该文件。
+创建登录 token
+
+kubectl create sa dashboard-admin -n kube-system
+kubectl create clusterrolebinding dashboard-admin --clusterrole=cluster-admin --serviceaccount=kube-system:dashboard-admin
+ADMIN_SECRET=$(kubectl get secrets -n kube-system | grep dashboard-admin | awk '{print $1}')
+DASHBOARD_LOGIN_TOKEN=$(kubectl describe secret -n kube-system ${ADMIN_SECRET} | grep -E '^token' | awk '{print $2}')
+echo ${DASHBOARD_LOGIN_TOKEN}
+
+使用输出的 token 登录 Dashboard。
+
+创建使用 token 的 KubeConfig 文件
+
+
+# 设置集群参数
+kubectl config set-cluster kubernetes \
+  --certificate-authority=/etc/kubernetes/cert/ca.pem \
+  --embed-certs=true \
+  --server=https://192.168.99.101:6443 \
+  --kubeconfig=dashboard.kubeconfig
+
+# 设置客户端认证参数，使用上面创建的 Token
+kubectl config set-credentials dashboard_user \
+  --token=${DASHBOARD_LOGIN_TOKEN} \
+  --kubeconfig=dashboard.kubeconfig
+
+# 设置上下文参数
+kubectl config set-context default \
+  --cluster=kubernetes \
+  --user=dashboard_user \
+  --kubeconfig=dashboard.kubeconfig
+
+# 设置默认上下文
+kubectl config use-context default --kubeconfig=dashboard.kubeconfig
+
+用生成的 dashboard.kubeconfig 登录 Dashboard。
+
+由于缺少 Heapster 插件，当前 dashboard 不能展示 Pod、Nodes 的 CPU、内存等统计数据和图表。
+

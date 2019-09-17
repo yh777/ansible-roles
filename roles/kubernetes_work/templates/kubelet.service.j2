@@ -20,7 +20,6 @@ ExecStart=/opt/k8s/bin/kubelet \
   --pod-infra-container-image=gcr.azk8s.cn/google_containers/pause-amd64:3.1 \
   --image-pull-progress-deadline=15m \
   --volume-plugin-dir=/data/k8s/kubelet/kubelet-plugins/volume/exec/ \
-  --logtostderr=true \
   --logtostderr=false \
   --log-dir=/data/k8s/logs/kubelet \
   --v=2

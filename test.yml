@@ -1,5 +1,5 @@
 ---
-- hosts: test5
+- hosts: master
   gather_facts: yes
   roles:
-    - kubernetes_common
+    - kubernetes_work
