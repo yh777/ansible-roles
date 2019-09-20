@@ -2,8 +2,11 @@
 - name: mkdir 1
   file: path=/etc/etcd/cert state=directory
 
-- name: mkdir 2
-  file: path=/var/lib/etcd state=directory
+- name: mkdir data dir
+  file: path={{ ETCD_DATA_DIR }} state=directory
+
+- name: mkdir data wal
+  file: path={{ ETCD_WAL_DIR }} state=directory
 
 - name: copy exec file 1
   copy: src=etcd dest=/opt/k8s/bin mode=755
@@ -19,6 +22,6 @@
 
 - name: copy Unit file
   template: src=etcd.service.j2 dest=/etc/systemd/system/etcd.service
-  notify:
-  - reload systemd
-  - restart etcd
+#  notify:
+#  - reload systemd
+#  - restart etcd

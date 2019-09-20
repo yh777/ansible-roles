@@ -2,6 +2,16 @@ kubernetes
 验证k8s验证 检查K8S检查
 /var/lib/docker
 
+etcd安装注意
+    WorkingDirectory、--data-dir：指定工作目录和数据目录为 ${ETCD_DATA_DIR}，需在启动服务前创建这个目录；
+    --wal-dir：指定 wal 目录，为了提高性能，一般使用 SSD 或者和 --data-dir 不同的磁盘；
+    --name：指定节点名称，当 --initial-cluster-state 值为 new 时，--name 的参数值必须位于 --initial-cluster 列表中；
+    --cert-file、--key-file：etcd server 与 client 通信时使用的证书和私钥；
+    --trusted-ca-file：签名 client 证书的 CA 证书，用于验证 client 证书；
+    --peer-cert-file、--peer-key-file：etcd 与 peer 通信使用的证书和私钥；
+    --peer-trusted-ca-file：签名 peer 证书的 CA 证书，用于验证 peer 证书；
+
+
 systemctl status etcd|grep Active
 
     ETCDCTL_API=3 /opt/k8s/bin/etcdctl \
@@ -177,6 +187,34 @@ systemctl status docker|grep Active
 
 查看 ipvs 路由规则
 /usr/sbin/ipvsadm -ln
+
+Bootstrap Token Auth 和授予权限
+
+kubelet 启动时查找 --kubeletconfig 参数对应的文件是否存在，如果不存在则使用 --bootstrap-kubeconfig 指定的 kubeconfig 文件向 kube-apiserver 发送证书签名请求 (CSR)。
+
+kube-apiserver 收到 CSR 请求后，对其中的 Token 进行认证，认证通过后将请求的 user 设置为 system:bootstrap:<Token ID>，group 设置为 system:bootstrappers，这一过程称为 Bootstrap Token Auth。
+
+默认情况下，这个 user 和 group 没有创建 CSR 的权限，kubelet 启动失败，错误日志如下：
+
+$ sudo journalctl -u kubelet -a |grep -A 2 'certificatesigningrequests'
+May 26 12:13:41 zhangjun-k8s01 kubelet[128468]: I0526 12:13:41.798230  128468 certificate_manager.go:366] Rotating certificates
+May 26 12:13:41 zhangjun-k8s01 kubelet[128468]: E0526 12:13:41.801997  128468 certificate_manager.go:385] Failed while requesting a signed certificate from the master: cannot cre
+ate certificate signing request: certificatesigningrequests.certificates.k8s.io is forbidden: User "system:bootstrap:82jfrm" cannot create resource "certificatesigningrequests" i
+n API group "certificates.k8s.io" at the cluster scope
+May 26 12:13:42 zhangjun-k8s01 kubelet[128468]: E0526 12:13:42.044828  128468 kubelet.go:2244] node "zhangjun-k8s01" not found
+May 26 12:13:42 zhangjun-k8s01 kubelet[128468]: E0526 12:13:42.078658  128468 reflector.go:126] k8s.io/kubernetes/pkg/kubelet/kubelet.go:442: Failed to list *v1.Service: Unauthor
+ized
+May 26 12:13:42 zhangjun-k8s01 kubelet[128468]: E0526 12:13:42.079873  128468 reflector.go:126] k8s.io/kubernetes/pkg/kubelet/kubelet.go:451: Failed to list *v1.Node: Unauthorize
+d
+May 26 12:13:42 zhangjun-k8s01 kubelet[128468]: E0526 12:13:42.082683  128468 reflector.go:126] k8s.io/client-go/informers/factory.go:133: Failed to list *v1beta1.CSIDriver: Unau
+thorized
+May 26 12:13:42 zhangjun-k8s01 kubelet[128468]: E0526 12:13:42.084473  128468 reflector.go:126] k8s.io/kubernetes/pkg/kubelet/config/apiserver.go:47: Failed to list *v1.Pod: Unau
+thorized
+May 26 12:13:42 zhangjun-k8s01 kubelet[128468]: E0526 12:13:42.088466  128468 reflector.go:126] k8s.io/client-go/informers/factory.go:133: Failed to list *v1beta1.RuntimeClass: U
+nauthorized
+
+解决办法是：创建一个 clusterrolebinding，将 group system:bootstrappers 和 clusterrole system:node-bootstrapper 绑定：
+$ kubectl create clusterrolebinding kubelet-bootstrap --clusterrole=system:node-bootstrapper --group=system:bootstrappers
 
 
 检查节点状态

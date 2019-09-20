@@ -1,0 +1,990 @@
+安装 cfssl 工具集
+
+sudo mkdir -p /opt/k8s/cert && cd /opt/k8s
+wget https://pkg.cfssl.org/R1.2/cfssl_linux-amd64
+mv cfssl_linux-amd64 /opt/k8s/bin/cfssl
+
+wget https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64
+mv cfssljson_linux-amd64 /opt/k8s/bin/cfssljson
+
+wget https://pkg.cfssl.org/R1.2/cfssl-certinfo_linux-amd64
+mv cfssl-certinfo_linux-amd64 /opt/k8s/bin/cfssl-certinfo
+
+chmod +x /opt/k8s/bin/*
+export PATH=/opt/k8s/bin:$PATH
+
+创建根证书 (CA)
+
+CA 证书是集群所有节点共享的，只需要创建一个 CA 证书，后续创建的所有证书都由它签名。
+创建配置文件
+
+CA 配置文件用于配置根证书的使用场景 (profile) 和具体参数 (usage，过期时间、服务端认证、客户端认证、加密等)，后续在签名其它证书时需要指定特定场景。
+
+cat > ca-config.json <<EOF
+{
+  "signing": {
+    "default": {
+      "expiry": "87600h"
+    },
+    "profiles": {
+      "kubernetes": {
+        "usages": [
+            "signing",
+            "key encipherment",
+            "server auth",
+            "client auth"
+        ],
+        "expiry": "87600h"
+      }
+    }
+  }
+}
+EOF
+
+    signing：表示该证书可用于签名其它证书，生成的 ca.pem 证书中 CA=TRUE；
+    server auth：表示 client 可以用该该证书对 server 提供的证书进行验证；
+    client auth：表示 server 可以用该该证书对 client 提供的证书进行验证；
+
+创建证书签名请求文件
+
+cd /opt/k8s/work
+cat > ca-csr.json <<EOF
+{
+  "CN": "kubernetes",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ],
+  "ca": {
+    "expiry": "876000h"
+ }
+}
+EOF
+
+    CN：Common Name，kube-apiserver 从证书中提取该字段作为请求的用户名 (User Name)，浏览器使用该字段验证网站是否合法；
+    O：Organization，kube-apiserver 从证书中提取该字段作为请求用户所属的组 (Group)；
+    kube-apiserver 将提取的 User、Group 作为 RBAC 授权的用户标识；
+
+生成 CA 证书和私钥
+
+cd /opt/k8s/work
+cfssl gencert -initca ca-csr.json | cfssljson -bare ca
+ls ca*
+
+分发证书文件
+
+将生成的 CA 证书、秘钥文件、配置文件拷贝到所有节点的 /etc/kubernetes/cert 目录下
+
+
+创建 admin 证书和私钥
+
+kubectl 与 apiserver https 安全端口通信，apiserver 对提供的证书进行认证和授权。
+
+kubectl 作为集群的管理工具，需要被授予最高权限，这里创建具有最高权限的 admin 证书。
+
+创建证书签名请求：
+
+cd /opt/k8s/work
+cat > admin-csr.json <<EOF
+{
+  "CN": "admin",
+  "hosts": [],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "system:masters",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+
+    O 为 system:masters，kube-apiserver 收到该证书后将请求的 Group 设置为 system:masters；
+    预定义的 ClusterRoleBinding cluster-admin 将 Group system:masters 与 Role cluster-admin 绑定，该 Role 授予所有 API的权限；
+    该证书只会被 kubectl 当做 client 证书使用，所以 hosts 字段为空；
+
+生成证书和私钥：
+
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes admin-csr.json | cfssljson -bare admin
+ls admin*
+
+创建 kubeconfig 文件
+
+kubeconfig 为 kubectl 的配置文件，包含访问 apiserver 的所有信息，如 apiserver 地址、CA 证书和自身使用的证书；
+
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+
+# 设置集群参数
+kubectl config set-cluster kubernetes \
+  --certificate-authority=/opt/k8s/work/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER} \
+  --kubeconfig=kubectl.kubeconfig
+
+# 设置客户端认证参数
+kubectl config set-credentials admin \
+  --client-certificate=/opt/k8s/work/admin.pem \
+  --client-key=/opt/k8s/work/admin-key.pem \
+  --embed-certs=true \
+  --kubeconfig=kubectl.kubeconfig
+
+# 设置上下文参数
+kubectl config set-context kubernetes \
+  --cluster=kubernetes \
+  --user=admin \
+  --kubeconfig=kubectl.kubeconfig
+
+# 设置默认上下文
+kubectl config use-context kubernetes --kubeconfig=kubectl.kubeconfig
+
+    --certificate-authority：验证 kube-apiserver 证书的根证书；
+    --client-certificate、--client-key：刚生成的 admin 证书和私钥，连接 kube-apiserver 时使用；
+    --embed-certs=true：将 ca.pem 和 admin.pem 证书内容嵌入到生成的 kubectl.kubeconfig 文件中(不加时，写入的是证书文件路径，后续拷贝 kubeconfig 到其它机器时，还需要单独拷贝证书文件，不方便。)；
+
+分发到所有使用 kubectl 命令的节点：
+
+
+创建 etcd 证书和私钥
+
+创建证书签名请求：
+
+cat > etcd-csr.json <<EOF
+{
+  "CN": "etcd",
+  "hosts": [
+    "127.0.0.1",
+    "172.27.137.240",
+    "172.27.137.239",
+    "172.27.137.238"
+  ],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+
+
+    hosts 字段指定授权使用该证书的 etcd 节点 IP 或域名列表，需要将 etcd 集群的三个节点 IP 都列在其中；
+
+生成证书和私钥：
+
+cfssl gencert -ca=/etc/kubernetes/cert/ca.pem \
+    -ca-key=/etc/kubernetes/cert/ca-key.pem \
+    -config=/etc/kubernetes/cert/ca-config.json \
+    -profile=kubernetes etcd-csr.json | cfssljson -bare etcd
+ls etcd*pem
+
+分发生成的证书和私钥到各 etcd 节点
+
+
+创建 flannel 证书和私钥
+
+flanneld 从 etcd 集群存取网段分配信息，而 etcd 集群启用了双向 x509 证书认证，所以需要为 flanneld 生成证书和私钥。
+
+创建证书签名请求：
+
+cat > flanneld-csr.json <<EOF
+{
+  "CN": "flanneld",
+  "hosts": [],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+
+    该证书只会被 kubectl 当做 client 证书使用，所以 hosts 字段为空；
+
+生成证书和私钥：
+
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes flanneld-csr.json | cfssljson -bare flanneld
+ls flanneld*pem
+
+将生成的证书和私钥分发到所有节点（master 和 worker)
+
+
+创建 kubernetes 证书和私钥
+
+创建证书签名请求：
+
+cat > kubernetes-csr.json <<EOF
+{
+  "CN": "kubernetes",
+  "hosts": [
+    "127.0.0.1",
+    "172.27.137.240",
+    "172.27.137.239",
+    "172.27.137.238",
+    "${CLUSTER_KUBERNETES_SVC_IP}",
+    "kubernetes",
+    "kubernetes.default",
+    "kubernetes.default.svc",
+    "kubernetes.default.svc.cluster",
+    "kubernetes.default.svc.cluster.local."
+  ],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+
+
+
+    hosts 字段指定授权使用该证书的 IP 和域名列表，这里列出了 master 节点 IP、kubernetes 服务的 IP 和域名；
+
+    kubernetes 服务 IP(${CLUSTER_KUBERNETES_SVC_IP}) 是 apiserver 自动创建的，一般是 --service-cluster-ip-range 参数指定的网段的第一个IP，后续可以通过下面命令获取：
+
+    $ kubectl get svc kubernetes
+    NAME         CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+    kubernetes   10.254.0.1   <none>        443/TCP   1d
+
+生成证书和私钥：
+
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes kubernetes-csr.json | cfssljson -bare kubernetes
+ls kubernetes*pem
+
+将生成的证书和私钥文件拷贝到所有 master 节点
+
+
+创建加密配置文件
+
+cat > encryption-config.yaml <<EOF
+kind: EncryptionConfig
+apiVersion: v1
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: key1
+              secret: ${ENCRYPTION_KEY}
+      - identity: {}
+EOF
+
+将加密配置文件拷贝到 master 节点的 /etc/kubernetes 目录下
+
+
+创建审计策略文件
+
+cat > audit-policy.yaml <<EOF
+apiVersion: audit.k8s.io/v1beta1
+kind: Policy
+rules:
+  # The following requests were manually identified as high-volume and low-risk, so drop them.
+  - level: None
+    resources:
+      - group: ""
+        resources:
+          - endpoints
+          - services
+          - services/status
+    users:
+      - 'system:kube-proxy'
+    verbs:
+      - watch
+
+  - level: None
+    resources:
+      - group: ""
+        resources:
+          - nodes
+          - nodes/status
+    userGroups:
+      - 'system:nodes'
+    verbs:
+      - get
+
+  - level: None
+    namespaces:
+      - kube-system
+    resources:
+      - group: ""
+        resources:
+          - endpoints
+    users:
+      - 'system:kube-controller-manager'
+      - 'system:kube-scheduler'
+      - 'system:serviceaccount:kube-system:endpoint-controller'
+    verbs:
+      - get
+      - update
+
+  - level: None
+    resources:
+      - group: ""
+        resources:
+          - namespaces
+          - namespaces/status
+          - namespaces/finalize
+    users:
+      - 'system:apiserver'
+    verbs:
+      - get
+
+  # Don't log HPA fetching metrics.
+  - level: None
+    resources:
+      - group: metrics.k8s.io
+    users:
+      - 'system:kube-controller-manager'
+    verbs:
+      - get
+      - list
+
+  # Don't log these read-only URLs.
+  - level: None
+    nonResourceURLs:
+      - '/healthz*'
+      - /version
+      - '/swagger*'
+
+  # Don't log events requests.
+  - level: None
+    resources:
+      - group: ""
+        resources:
+          - events
+
+  # node and pod status calls from nodes are high-volume and can be large, don't log responses for expected updates from nodes
+  - level: Request
+    omitStages:
+      - RequestReceived
+    resources:
+      - group: ""
+        resources:
+          - nodes/status
+          - pods/status
+    users:
+      - kubelet
+      - 'system:node-problem-detector'
+      - 'system:serviceaccount:kube-system:node-problem-detector'
+    verbs:
+      - update
+      - patch
+
+  - level: Request
+    omitStages:
+      - RequestReceived
+    resources:
+      - group: ""
+        resources:
+          - nodes/status
+          - pods/status
+    userGroups:
+      - 'system:nodes'
+    verbs:
+      - update
+      - patch
+
+  # deletecollection calls can be large, don't log responses for expected namespace deletions
+  - level: Request
+    omitStages:
+      - RequestReceived
+    users:
+      - 'system:serviceaccount:kube-system:namespace-controller'
+    verbs:
+      - deletecollection
+
+  # Secrets, ConfigMaps, and TokenReviews can contain sensitive & binary data,
+  # so only log at the Metadata level.
+  - level: Metadata
+    omitStages:
+      - RequestReceived
+    resources:
+      - group: ""
+        resources:
+          - secrets
+          - configmaps
+      - group: authentication.k8s.io
+        resources:
+          - tokenreviews
+  # Get repsonses can be large; skip them.
+  - level: Request
+    omitStages:
+      - RequestReceived
+    resources:
+      - group: ""
+      - group: admissionregistration.k8s.io
+      - group: apiextensions.k8s.io
+      - group: apiregistration.k8s.io
+      - group: apps
+      - group: authentication.k8s.io
+      - group: authorization.k8s.io
+      - group: autoscaling
+      - group: batch
+      - group: certificates.k8s.io
+      - group: extensions
+      - group: metrics.k8s.io
+      - group: networking.k8s.io
+      - group: policy
+      - group: rbac.authorization.k8s.io
+      - group: scheduling.k8s.io
+      - group: settings.k8s.io
+      - group: storage.k8s.io
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Default level for known APIs
+  - level: RequestResponse
+    omitStages:
+      - RequestReceived
+    resources:
+      - group: ""
+      - group: admissionregistration.k8s.io
+      - group: apiextensions.k8s.io
+      - group: apiregistration.k8s.io
+      - group: apps
+      - group: authentication.k8s.io
+      - group: authorization.k8s.io
+      - group: autoscaling
+      - group: batch
+      - group: certificates.k8s.io
+      - group: extensions
+      - group: metrics.k8s.io
+      - group: networking.k8s.io
+      - group: policy
+      - group: rbac.authorization.k8s.io
+      - group: scheduling.k8s.io
+      - group: settings.k8s.io
+      - group: storage.k8s.io
+      
+  # Default level for all other requests.
+  - level: Metadata
+    omitStages:
+      - RequestReceived
+EOF
+
+分发审计策略文件到所有master节点
+
+
+创建后续访问 metrics-server 使用的证书
+
+创建证书签名请求:
+
+cat > proxy-client-csr.json <<EOF
+{
+  "CN": "aggregator",
+  "hosts": [],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+
+    CN 名称需要位于 kube-apiserver 的 --requestheader-allowed-names 参数中，否则后续访问 metrics 时会提示权限不足。
+
+生成证书和私钥：
+
+cfssl gencert -ca=/etc/kubernetes/cert/ca.pem \
+  -ca-key=/etc/kubernetes/cert/ca-key.pem  \
+  -config=/etc/kubernetes/cert/ca-config.json  \
+  -profile=kubernetes proxy-client-csr.json | cfssljson -bare proxy-client
+ls proxy-client*.pem
+
+将生成的证书和私钥文件拷贝到所有 master 节点：
+
+
+创建 kube-controller-manager 证书和私钥
+
+创建证书签名请求：
+
+cat > kube-controller-manager-csr.json <<EOF
+{
+    "CN": "system:kube-controller-manager",
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "hosts": [
+      "127.0.0.1",
+      "172.27.137.240",
+      "172.27.137.239",
+      "172.27.137.238"
+    ],
+    "names": [
+      {
+        "C": "CN",
+        "ST": "BeiJing",
+        "L": "BeiJing",
+        "O": "system:kube-controller-manager",
+        "OU": "4Paradigm"
+      }
+    ]
+}
+EOF
+
+
+    hosts 列表包含所有 kube-controller-manager 节点 IP；
+    CN 和 O 均为 system:kube-controller-manager，kubernetes 内置的 ClusterRoleBindings system:kube-controller-manager 赋予 kube-controller-manager 工作所需的权限。
+
+
+生成证书和私钥：
+
+cd /opt/k8s/work
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes kube-controller-manager-csr.json | cfssljson -bare kube-controller-manager
+ls kube-controller-manager*pem
+
+将生成的证书和私钥分发到所有 master 节点
+
+创建和分发 kubeconfig 文件
+
+kube-controller-manager 使用 kubeconfig 文件访问 apiserver，该文件提供了 apiserver 地址、嵌入的 CA 证书和 kube-controller-manager 证书：
+
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+kubectl config set-cluster kubernetes \
+  --certificate-authority=/opt/k8s/work/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER} \
+  --kubeconfig=kube-controller-manager.kubeconfig
+
+kubectl config set-credentials system:kube-controller-manager \
+  --client-certificate=kube-controller-manager.pem \
+  --client-key=kube-controller-manager-key.pem \
+  --embed-certs=true \
+  --kubeconfig=kube-controller-manager.kubeconfig
+
+kubectl config set-context system:kube-controller-manager \
+  --cluster=kubernetes \
+  --user=system:kube-controller-manager \
+  --kubeconfig=kube-controller-manager.kubeconfig
+
+kubectl config use-context system:kube-controller-manager --kubeconfig=kube-controller-manager.kubeconfig
+
+分发 kubeconfig 到所有 master 节点
+
+创建 kube-scheduler 证书和私钥
+
+创建证书签名请求：
+
+cd /opt/k8s/work
+cat > kube-scheduler-csr.json <<EOF
+{
+    "CN": "system:kube-scheduler",
+    "hosts": [
+      "127.0.0.1",
+      "172.27.137.238",
+      "172.27.137.239",
+      "172.27.137.240"
+    ],
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "names": [
+      {
+        "C": "CN",
+        "ST": "BeiJing",
+        "L": "BeiJing",
+        "O": "system:kube-scheduler",
+        "OU": "4Paradigm"
+      }
+    ]
+}
+EOF
+
+
+    hosts 列表包含所有 kube-scheduler 节点 IP；
+    CN 和 O 均为 system:kube-scheduler，kubernetes 内置的 ClusterRoleBindings system:kube-scheduler 将赋予 kube-scheduler 工作所需的权限；
+
+
+生成证书和私钥：
+
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes kube-scheduler-csr.json | cfssljson -bare kube-scheduler
+ls kube-scheduler*pem
+
+将生成的证书和私钥分发到所有 master 节点
+
+创建和分发 kubeconfig 文件
+
+kube-scheduler 使用 kubeconfig 文件访问 apiserver，该文件提供了 apiserver 地址、嵌入的 CA 证书和 kube-scheduler 证书：
+
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+kubectl config set-cluster kubernetes \
+  --certificate-authority=/opt/k8s/work/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER} \
+  --kubeconfig=kube-scheduler.kubeconfig
+
+kubectl config set-credentials system:kube-scheduler \
+  --client-certificate=kube-scheduler.pem \
+  --client-key=kube-scheduler-key.pem \
+  --embed-certs=true \
+  --kubeconfig=kube-scheduler.kubeconfig
+
+kubectl config set-context system:kube-scheduler \
+  --cluster=kubernetes \
+  --user=system:kube-scheduler \
+  --kubeconfig=kube-scheduler.kubeconfig
+
+kubectl config use-context system:kube-scheduler --kubeconfig=kube-scheduler.kubeconfig
+
+分发 kubeconfig 到所有 master 节点
+
+创建 kube-scheduler 配置文件
+
+cd /opt/k8s/work
+cat >kube-scheduler.yaml.template <<EOF
+apiVersion: kubescheduler.config.k8s.io/v1alpha1
+kind: KubeSchedulerConfiguration
+bindTimeoutSeconds: 600
+clientConnection:
+  burst: 200
+  kubeconfig: "/etc/kubernetes/kube-scheduler.kubeconfig"
+  qps: 100
+enableContentionProfiling: false
+enableProfiling: true
+hardPodAffinitySymmetricWeight: 1
+healthzBindAddress: ##NODE_IP##:10251
+leaderElection:
+  leaderElect: true
+metricsBindAddress: ##NODE_IP##:10251
+EOF
+
+    --kubeconfig：指定 kubeconfig 文件路径，kube-scheduler 使用它连接和验证 kube-apiserver；
+    --leader-elect=true：集群运行模式，启用选举功能；被选为 leader 的节点负责处理工作，其它节点为阻塞状态；
+
+替换模板文件中的变量：
+
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+for (( i=0; i < 3; i++ ))
+  do
+    sed -e "s/##NODE_NAME##/${NODE_NAMES[i]}/" -e "s/##NODE_IP##/${NODE_IPS[i]}/" kube-scheduler.yaml.template > kube-scheduler-${NODE_IPS[i]}.yaml
+  done
+ls kube-scheduler*.yaml
+
+
+    NODE_NAMES 和 NODE_IPS 为相同长度的 bash 数组，分别为节点名称和对应的 IP；
+
+分发 kube-scheduler 配置文件到所有 master 节点：
+重命名为 kube-scheduler.yaml;
+
+
+
+创建 kubelet bootstrap kubeconfig 文件
+
+for node_name in ${NODE_NAMES[@]}
+  do
+    echo ">>> ${node_name}"
+
+    # 创建 token
+    export BOOTSTRAP_TOKEN=$(kubeadm token create \
+      --description kubelet-bootstrap-token \
+      --groups system:bootstrappers:${node_name} \
+      --kubeconfig ~/.kube/config)
+
+    # 设置集群参数
+    kubectl config set-cluster kubernetes \
+      --certificate-authority=/etc/kubernetes/cert/ca.pem \
+      --embed-certs=true \
+      --server=${KUBE_APISERVER} \
+      --kubeconfig=kubelet-bootstrap-${node_name}.kubeconfig
+
+    # 设置客户端认证参数
+    kubectl config set-credentials kubelet-bootstrap \
+      --token=${BOOTSTRAP_TOKEN} \
+      --kubeconfig=kubelet-bootstrap-${node_name}.kubeconfig
+
+    # 设置上下文参数
+    kubectl config set-context default \
+      --cluster=kubernetes \
+      --user=kubelet-bootstrap \
+      --kubeconfig=kubelet-bootstrap-${node_name}.kubeconfig
+
+    # 设置默认上下文
+    kubectl config use-context default --kubeconfig=kubelet-bootstrap-${node_name}.kubeconfig
+  done
+
+    向 kubeconfig 写入的是 token，bootstrap 结束后 kube-controller-manager 为 kubelet 创建 client 和 server 证书；
+
+查看 kubeadm 为各节点创建的 token：
+
+$ kubeadm token list --kubeconfig ~/.kube/config
+TOKEN                     TTL       EXPIRES                     USAGES                   DESCRIPTION               EXTRA GROUPS
+3gzd53.ahl5unc2d09yjid9   23h       2019-05-27T11:29:57+08:00   authentication,signing   kubelet-bootstrap-token   system:bootstrappers:zhangjun-k8s02
+82jfrm.um1mkjkr7w2c7ex9   23h       2019-05-27T11:29:56+08:00   authentication,signing   kubelet-bootstrap-token   system:bootstrappers:zhangjun-k8s01
+
+
+    token 有效期为 1 天，超期后将不能再被用来 boostrap kubelet，且会被 kube-controller-manager 的 tokencleaner 清理；
+    kube-apiserver 接收 kubelet 的 bootstrap token 后，将请求的 user 设置为 system:bootstrap:<Token ID>，group 设置为 system:bootstrappers，后续将为这个 group 设置 ClusterRoleBinding；
+
+查看各 token 关联的 Secret：
+
+$ kubectl get secrets  -n kube-system|grep bootstrap-token
+
+分发 bootstrap kubeconfig 文件到所有 worker 节点
+
+
+创建和分发 kubelet 参数配置文件
+
+从 v1.10 开始，部分 kubelet 参数需在配置文件中配置，kubelet --help 会提示：
+
+DEPRECATED: This parameter should be set via the config file specified by the Kubelet's --config flag
+
+创建 kubelet 参数配置文件模板
+
+cat > kubelet-config.yaml.template <<EOF
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+address: "##NODE_IP##"
+staticPodPath: ""
+syncFrequency: 1m
+fileCheckFrequency: 20s
+httpCheckFrequency: 20s
+staticPodURL: ""
+port: 10250
+readOnlyPort: 0
+rotateCertificates: true
+serverTLSBootstrap: true
+authentication:
+  anonymous:
+    enabled: false
+  webhook:
+    enabled: true
+  x509:
+    clientCAFile: "/etc/kubernetes/cert/ca.pem"
+authorization:
+  mode: Webhook
+registryPullQPS: 0
+registryBurst: 20
+eventRecordQPS: 0
+eventBurst: 20
+enableDebuggingHandlers: true
+enableContentionProfiling: true
+healthzPort: 10248
+healthzBindAddress: "##NODE_IP##"
+clusterDomain: "${CLUSTER_DNS_DOMAIN}"
+clusterDNS:
+  - "${CLUSTER_DNS_SVC_IP}"
+nodeStatusUpdateFrequency: 10s
+nodeStatusReportFrequency: 1m
+imageMinimumGCAge: 2m
+imageGCHighThresholdPercent: 85
+imageGCLowThresholdPercent: 80
+volumeStatsAggPeriod: 1m
+kubeletCgroups: ""
+systemCgroups: ""
+cgroupRoot: ""
+cgroupsPerQOS: true
+cgroupDriver: cgroupfs
+runtimeRequestTimeout: 10m
+hairpinMode: promiscuous-bridge
+maxPods: 220
+podCIDR: "${CLUSTER_CIDR}"
+podPidsLimit: -1
+resolvConf: /etc/resolv.conf
+maxOpenFiles: 1000000
+kubeAPIQPS: 1000
+kubeAPIBurst: 2000
+serializeImagePulls: false
+evictionHard:
+  memory.available:  "100Mi"
+nodefs.available:  "10%"
+nodefs.inodesFree: "5%"
+imagefs.available: "15%"
+evictionSoft: {}
+enableControllerAttachDetach: true
+failSwapOn: true
+containerLogMaxSize: 20Mi
+containerLogMaxFiles: 10
+systemReserved: {}
+kubeReserved: {}
+systemReservedCgroup: ""
+kubeReservedCgroup: ""
+enforceNodeAllocatable: ["pods"]
+EOF
+
+    address：kubelet 安全端口（https，10250）监听的地址，不能为 127.0.0.1，否则 kube-apiserver、heapster 等不能调用 kubelet 的 API；
+    readOnlyPort=0：关闭只读端口(默认 10255)，等效为未指定；
+    authentication.anonymous.enabled：设置为 false，不允许匿名�访问 10250 端口；
+    authentication.x509.clientCAFile：指定签名客户端证书的 CA 证书，开启 HTTP 证书认证；
+    authentication.webhook.enabled=true：开启 HTTPs bearer token 认证；
+    对于未通过 x509 证书和 webhook 认证的请求(kube-apiserver 或其他客户端)，将被拒绝，提示 Unauthorized；
+    authroization.mode=Webhook：kubelet 使用 SubjectAccessReview API 查询 kube-apiserver 某 user、group 是否具有操作资源的权限(RBAC)；
+    featureGates.RotateKubeletClientCertificate、featureGates.RotateKubeletServerCertificate：自动 rotate 证书，证书的有效期取决于 kube-controller-manager 的 --experimental-cluster-signing-duration 参数；
+    需要 root 账户运行；
+
+为各节点创建和分发 kubelet 配置文件
+
+
+创建 kube-proxy 证书
+
+创建证书签名请求：
+
+cd /opt/k8s/work
+cat > kube-proxy-csr.json <<EOF
+{
+  "CN": "system:kube-proxy",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+
+    CN：指定该证书的 User 为 system:kube-proxy；
+    预定义的 RoleBinding system:node-proxier 将User system:kube-proxy 与 Role system:node-proxier 绑定，该 Role 授予了调用 kube-apiserver Proxy 相关 API 的权限；
+    该证书只会被 kube-proxy 当做 client 证书使用，所以 hosts 字段为空；
+
+
+创建 kube-proxy 证书
+
+生成证书和私钥：
+
+cfssl gencert -ca=/opt/k8s/work/ca.pem \
+  -ca-key=/opt/k8s/work/ca-key.pem \
+  -config=/opt/k8s/work/ca-config.json \
+  -profile=kubernetes  kube-proxy-csr.json | cfssljson -bare kube-proxy
+ls kube-proxy*
+
+
+创建和分发 kubeconfig 文件
+
+cd /opt/k8s/work
+source /opt/k8s/bin/environment.sh
+kubectl config set-cluster kubernetes \
+  --certificate-authority=/opt/k8s/work/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER} \
+  --kubeconfig=kube-proxy.kubeconfig
+
+kubectl config set-credentials kube-proxy \
+  --client-certificate=kube-proxy.pem \
+  --client-key=kube-proxy-key.pem \
+  --embed-certs=true \
+  --kubeconfig=kube-proxy.kubeconfig
+
+kubectl config set-context default \
+  --cluster=kubernetes \
+  --user=kube-proxy \
+  --kubeconfig=kube-proxy.kubeconfig
+
+kubectl config use-context default --kubeconfig=kube-proxy.kubeconfig
+
+
+    --embed-certs=true：将 ca.pem 和 admin.pem 证书内容嵌入到生成的 kubectl-proxy.kubeconfig 文件中(不加时，写入的是证书文件路径)；
+
+分发 kubeconfig 文件
+
+创建 kube-proxy 配置文件
+
+从 v1.10 开始，kube-proxy 部分参数可以配置文件中配置。可以使用 --write-config-to 选项生成该配置文件，或者参考 源代码的注释。
+
+创建 kube-proxy config 文件模板：
+
+cd /opt/k8s/work
+cat > kube-proxy-config.yaml.template <<EOF
+kind: KubeProxyConfiguration
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+clientConnection:
+  burst: 200
+  kubeconfig: "/etc/kubernetes/kube-proxy.kubeconfig"
+  qps: 100
+bindAddress: ##NODE_IP##
+healthzBindAddress: ##NODE_IP##:10256
+metricsBindAddress: ##NODE_IP##:10249
+enableProfiling: true
+clusterCIDR: ${CLUSTER_CIDR}
+hostnameOverride: ##NODE_NAME##
+mode: "ipvs"
+portRange: ""
+kubeProxyIPTablesConfiguration:
+  masqueradeAll: false
+kubeProxyIPVSConfiguration:
+  scheduler: rr
+  excludeCIDRs: []
+EOF
+
+    bindAddress: 监听地址；
+    clientConnection.kubeconfig: 连接 apiserver 的 kubeconfig 文件；
+    clusterCIDR: kube-proxy 根据 --cluster-cidr 判断集群内部和外部流量，指定 --cluster-cidr 或 --masquerade-all 选项后 kube-proxy 才会对访问 Service IP 的请求做 SNAT；
+    hostnameOverride: 参数值必须与 kubelet 的值一致，否则 kube-proxy 启动后会找不到该 Node，从而不会创建任何 ipvs 规则；
+    mode: 使用 ipvs 模式；
+
+为各节点创建和分发 kube-proxy 配置文件
+
