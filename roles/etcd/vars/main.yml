@@ -1,4 +1,4 @@
 ---
-ETCD_NODES: "test101=https://192.168.99.101:2380,test102=https://192.168.99.102:2380,test103=https://192.168.99.103:2380"
+ETCD_NODES: "test101=https://192.168.99.101:2380,test102=https://192.168.99.102:2380,test103=https://192.168.99.103:2380,test104=https://192.168.99.104:2380,test105=https://192.168.99.105:2380"
 ETCD_DATA_DIR: "/data/k8s/etcd/data"
 ETCD_WAL_DIR: "/data/k8s/etcd/wal"
