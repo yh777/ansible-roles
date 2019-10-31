@@ -1,5 +1,5 @@
 ---
-- hosts: master
+- hosts: uk8s-node
   gather_facts: yes
   roles:
-    - kubernetes_work 
+    - docker_add_login
